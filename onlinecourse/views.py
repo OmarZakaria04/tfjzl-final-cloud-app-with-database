@@ -8,10 +8,57 @@ from django.urls import reverse
 from django.views import generic
 from django.contrib.auth import login, logout, authenticate
 import logging
+from .models import Course, Lesson, Instructor, Learner, Question, Choice, Submission, Enrollment
 # Get an instance of a logger
 logger = logging.getLogger(__name__)
 # Create your views here.
+# Function to extract selected choices from the request
+def extract_answers(request):
+    selected_ids = []
+    for key, value in request.POST.items():
+        if key.startswith('choice_'):
+            selected_ids.append(value)
+    return Choice.objects.filter(id__in=selected_ids)
 
+# Submit View
+def submit(request, course_id):
+    course = get_object_or_404(Course, pk=course_id)
+    user = request.user
+    # Note: If you get an error here, you might need to use filter().first() or handle specific errors
+    enrollment = Enrollment.objects.get(user=user, course=course)
+    
+    # Create submission
+    submission = Submission.objects.create(enrollment=enrollment)
+    
+    # Get choices and save them
+    choices = extract_answers(request)
+    submission.choices.set(choices)
+    
+    submission_id = submission.id
+    return HttpResponseRedirect(reverse(viewname='onlinecourse:exam_result', args=(course_id, submission_id,)))
+
+# Exam Result View
+def show_exam_result(request, course_id, submission_id):
+    context = {}
+    course = get_object_or_404(Course, pk=course_id)
+    submission = Submission.objects.get(id=submission_id)
+    choices = submission.choices.all()
+
+    total_score = 0
+    questions = course.question_set.all()
+
+    for question in questions:
+        correct_choices = question.choice_set.filter(is_correct=True)
+        selected_choices = choices.filter(question=question)
+
+        if set(correct_choices) == set(selected_choices):
+            total_score += question.grade
+
+    context['course'] = course
+    context['grade'] = total_score
+    context['choices'] = choices
+    
+    return render(request, 'onlinecourse/exam_result_bootstrap.html', context)
 
 def registration_request(request):
     context = {}
